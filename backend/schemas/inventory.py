@@ -1,45 +1,35 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, BeforeValidator, ConfigDict
 from typing import List, Optional
-from bson import ObjectId
+from typing_extensions import Annotated
 
-# Esto permite que Pydantic maneje los IDs de Mongo
-class PyObjectId(ObjectId):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+# --- TRUCO JEDI: Convertir ObjectId a String automáticamente ---
+# Esto intercepta el dato antes de validarlo y lo vuelve string
+PyObjectId = Annotated[str, BeforeValidator(str)]
 
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid objectid")
-        return ObjectId(v)
-
-    @classmethod
-    def __modify_schema__(cls, field_schema):
-        field_schema.update(type="string")
-
-# Modelo de una Computadora o Item dentro del laboratorio
 class Item(BaseModel):
-    id: str = Field(default_factory=lambda: str(ObjectId())) # ID único del item
-    name: str   # Ej: "PC-01"
-    status: str # Ej: "Operativa", "Dañada", "En Mantenimiento"
-    specs: Optional[str] = None # Ej: "i7 16GB RAM"
+    id: str = Field(default_factory=lambda: "item_" + str(id(object())))
+    name: str
+    status: str
+    specs: Optional[str] = None
 
-# Modelo del Laboratorio Completo
 class Laboratory(BaseModel):
-    id: Optional[str] = Field(alias="_id") # El ID de Mongo
-    name: str        # Ej: "Laboratorio de Redes"
-    location: str    # Ej: "Edificio B, Piso 2"
+    # Mapeamos el "_id" de Mongo al "id" de Python
+    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    name: str
+    location: str
     description: str
-    items: List[Item] = [] # Lista de computadoras dentro
+    items: List[Item] = []
 
-    class Config:
-        allow_population_by_field_name = True
-        schema_extra = {
+    # Configuración estricta para Pydantic V2
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_schema_extra = {
             "example": {
-                "name": "Laboratorio de Software",
-                "location": "Piso 3",
-                "description": "Lab principal para desarrollo",
+                "name": "Lab de Redes",
+                "location": "Bloque B",
+                "description": "Laboratorio principal",
                 "items": []
             }
         }
+    )
