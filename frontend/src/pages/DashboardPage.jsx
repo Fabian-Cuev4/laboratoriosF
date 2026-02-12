@@ -163,7 +163,13 @@ function DashboardPage() {
                     />
                   </CardContent>
                   <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
-                    <Button size="small" variant="outlined">Ver Inventario</Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => navigate(`/lab/${lab._id}`)} // Agregamos esto
+                    >
+                      Ver Inventario
+                    </Button>
                     <Button size="small" color="secondary">Editar</Button>
                   </CardActions>
                 </Card>

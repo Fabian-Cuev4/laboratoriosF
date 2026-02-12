@@ -47,3 +47,11 @@ async def add_item_to_lab(id: str, item_name: str, item_status: str):
     )
 
     return {"mensaje": "Item agregado correctamente", "item": new_item}
+
+# --- 4. OBTENER UN SOLO LAB POR ID (GET) ---
+@router.get("/{id}", response_model=Laboratory)
+async def get_laboratory(id: str):
+    lab = await mongo_db["laboratories"].find_one({"_id": ObjectId(id)})
+    if not lab:
+        raise HTTPException(status_code=404, detail="Laboratorio no encontrado")
+    return lab
