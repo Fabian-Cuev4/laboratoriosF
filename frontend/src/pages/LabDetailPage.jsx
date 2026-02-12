@@ -1,77 +1,302 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Container, Typography, Box, Button, Grid, Card, CardContent, TextField, Chip, Divider, IconButton } from "@mui/material";
+import { 
+  Container, Typography, Box, Button, Chip, 
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, 
+  MenuItem, Paper, Divider, Grid
+} from "@mui/material";
+
+// Iconos
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import ComputerIcon from '@mui/icons-material/Computer';
+import BuildIcon from '@mui/icons-material/Build';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import api from "../api/axios";
 
 function LabDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [lab, setLab] = useState(null);
-  const [itemName, setItemName] = useState("");
+  const [loading, setLoading] = useState(true);
 
+  // Estados de Modales
+  const [openAdd, setOpenAdd] = useState(false);
+  const [openHistory, setOpenHistory] = useState(false);
+  const [openMaint, setOpenMaint] = useState(false);
+  const [openUpdate, setOpenUpdate] = useState(false);
+  
+  const [selectedItem, setSelectedItem] = useState(null);
+
+  // Formularios
+  const [formData, setFormData] = useState({ code: "", type: "Computadora", status: "Operativa", area: "", date: "" });
+  const [maintData, setMaintData] = useState({ technician: "", type: "Preventivo", description: "" });
+
+  // 1. Cargar Datos
   const fetchLab = async () => {
-    const res = await api.get(`/laboratories/${id}`);
-    setLab(res.data);
+    try {
+        const res = await api.get(`/laboratories/${id}`);
+        setLab(res.data);
+    } catch (e) { 
+        console.error(e);
+        // Si falla, es probable que sea el 404 del backend antiguo
+    } finally {
+        setLoading(false);
+    }
   };
 
   useEffect(() => { fetchLab(); }, [id]);
 
-  const handleAddItem = async () => {
-    if (!itemName) return;
-    // Llamamos al endpoint PUT que creamos antes
-    await api.put(`/laboratories/${id}/add-item?item_name=${itemName}&item_status=Operativo`);
-    setItemName("");
-    fetchLab(); // Recargar datos
+  // 2. Handlers (Guardar datos)
+  const handleSaveItem = async () => {
+    try {
+        // AHORA ENVIAMOS UN JSON (BODY), NO URL PARAMS
+        await api.put(`/laboratories/${id}/add-item`, {
+            code: formData.code,
+            type: formData.type,
+            status: formData.status,
+            area: formData.area,
+            acquisition_date: formData.date || "2026-01-01" // Fecha por defecto si está vacía
+        });
+        
+        setOpenAdd(false);
+        setFormData({ code: "", type: "Computadora", status: "Operativa", area: "", date: "" });
+        fetchLab();
+        alert("¡Máquina guardada correctamente!"); // Feedback visual
+    } catch (e) { 
+        console.error(e);
+        alert("Error al guardar: " + (e.response?.data?.detail || "Error desconocido")); 
+    }
   };
 
-  if (!lab) return <Typography>Cargando...</Typography>;
+  const handleSaveMaintenance = async () => {
+     try {
+         // CORRECCIÓN: Enviamos un objeto JSON como segundo argumento, NO params
+         await api.post(`/laboratories/${id}/items/${selectedItem.id}/maintenance`, {
+             technician: maintData.technician,
+             type: maintData.type,
+             description: maintData.description
+         });
+         
+         setOpenMaint(false);
+         setMaintData({ technician: "", type: "Preventivo", description: "" });
+         fetchLab();
+         alert("Mantenimiento registrado con éxito");
+     } catch (e) { 
+         console.error(e);
+         alert("Error al registrar: Verifica que todos los campos estén llenos."); 
+     }
+  };
+
+  const handleUpdateItem = async () => {
+      try {
+        // CORRECCIÓN: Enviamos JSON directo (Body), NO params
+        await api.put(`/laboratories/${id}/items/${selectedItem.id}`, {
+            code: formData.code,
+            type: formData.type,
+            status: formData.status,
+            area: formData.area || "General", // Evitamos vacíos
+            acquisition_date: formData.date || "2024-01-01"
+        });
+        
+        setOpenUpdate(false);
+        fetchLab(); // Esto refresca la lista al instante
+        alert("Máquina actualizada correctamente");
+      } catch (e) { 
+        console.error(e);
+        alert("Error al actualizar: Verifica los datos."); 
+      }
+  };
+
+  // Abrir modales y cargar datos previos si es necesario
+  const openModal = (type, item) => {
+      setSelectedItem(item);
+      if (type === 'history') setOpenHistory(true);
+      if (type === 'maint') setOpenMaint(true);
+      if (type === 'update') {
+          setFormData({ ...formData, code: item.name, status: item.status }); 
+          setOpenUpdate(true);
+      }
+  };
+
+  if (loading) return <Typography sx={{ mt: 5, textAlign: 'center' }}>Cargando...</Typography>;
+  if (!lab) return <Typography sx={{ mt: 5, textAlign: 'center', color: 'red', fontWeight: 'bold' }}>Error: No se pudo cargar el laboratorio. Revisa que el Backend tenga la ruta GET /{id}</Typography>;
 
   return (
-    <Container sx={{ mt: 4 }}>
-      <Button startIcon={<ArrowBackIcon />} onClick={() => navigate("/dashboard")}>Volver</Button>
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h3">{lab.name}</Typography>
-        <Typography variant="subtitle1" color="text.secondary">{lab.location} - {lab.description}</Typography>
+      {/* HEADER AZUL CLARO (Como tu imagen) */}
+      <Paper elevation={0} sx={{ p: 2, bgcolor: '#e3f2fd', display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, border: '1px solid #90caf9' }}>
+        <Box display="flex" alignItems="center" gap={2}>
+            <Box sx={{ bgcolor: '#2196f3', p: 1.5, borderRadius: 2, color: 'white' }}>
+                <BuildIcon fontSize="medium" />
+            </Box>
+            <Box>
+                <Typography variant="h6" fontWeight="bold" color="#1565c0">{lab.name}</Typography>
+                <Typography variant="body2" color="text.secondary">Ubicación: {lab.location} | FICA</Typography>
+            </Box>
+        </Box>
+        <Typography variant="h4" fontWeight="bold" color="#1565c0">{lab.items?.length || 0}</Typography>
+      </Paper>
+
+      {/* BOTONERA SUPERIOR */}
+      <Box sx={{ mb: 3, display: 'flex', gap: 1 }}>
+        <Button variant="contained" sx={{ bgcolor: '#29b6f6' }} onClick={() => setOpenAdd(true)}>Agregar Máquina</Button>
+        <Button variant="contained" sx={{ bgcolor: '#29b6f6' }} onClick={() => navigate("/reportes")}>Generar Reporte</Button>
+        <Button variant="contained" sx={{ bgcolor: '#29b6f6' }} onClick={() => navigate("/dashboard")}>Regresar</Button>
       </Box>
 
-      <Divider sx={{ mb: 4 }} />
-
-      <Grid container spacing={4}>
-        {/* Formulario para agregar */}
-        <Grid item xs={12} md={4}>
-          <Typography variant="h6" gutterBottom>Registrar Nuevo Equipo</Typography>
-          <TextField 
-            fullWidth label="Nombre del Equipo (ej: PC-01)" 
-            value={itemName} 
-            onChange={(e) => setItemName(e.target.value)} 
-            sx={{ mb: 2 }}
-          />
-          <Button fullWidth variant="contained" onClick={handleAddItem}>Agregar al Inventario</Button>
-        </Grid>
-
-        {/* Lista de equipos */}
-        <Grid item xs={12} md={8}>
-          <Typography variant="h6" gutterBottom>Equipos en este Laboratorio</Typography>
-          <Grid container spacing={2}>
-            {lab.items.map((item) => (
-              <Grid item xs={12} sm={6} key={item.id}>
-                <Card variant="outlined">
-                  <CardContent sx={{ display: 'flex', alignItems: 'center' }}>
-                    <ComputerIcon sx={{ mr: 2, color: 'primary.main' }} />
+      {/* --- LISTA DE MAQUINAS (Estilo Imagen image_6b7477) --- */}
+      <Box display="flex" flexDirection="column" gap={2}>
+        {lab.items?.map((item) => (
+            <Paper key={item.id} elevation={1} sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderLeft: item.status === 'Operativa' ? '5px solid #4caf50' : '5px solid #f44336' }}>
+                
+                {/* Info Izquierda */}
+                <Box display="flex" alignItems="center" gap={3} flex={1}>
+                    <Box sx={{ width: 50, height: 50, bgcolor: '#0277bd', borderRadius: 1 }}></Box> {/* Foto placeholder azul oscuro */}
                     <Box>
-                      <Typography variant="body1" fontWeight="bold">{item.name}</Typography>
-                      <Chip label={item.status} size="small" color="success" />
+                        <Typography variant="h6" fontWeight="bold">{item.name}</Typography> {/* CODIGO */}
+                        <Typography variant="body2" color="text.secondary">Suficiencia-A | 2024-12-13 | Computadora</Typography>
                     </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        </Grid>
-      </Grid>
+                </Box>
+
+                {/* Estado */}
+                <Box sx={{ minWidth: 150, textAlign: 'center' }}>
+                    <Chip 
+                        label={item.status.toUpperCase()} 
+                        sx={{ 
+                            bgcolor: item.status === 'Operativa' ? '#4caf50' : '#f44336', 
+                            color: 'white', 
+                            fontWeight: 'bold',
+                            width: '100%'
+                        }} 
+                    />
+                </Box>
+
+                {/* Botones de Acción (Amarillo, Azul, Verde) */}
+                <Box display="flex" flexDirection="column" gap={1} ml={4}>
+                    <Button 
+                        variant="contained" size="small" 
+                        sx={{ bgcolor: '#fdd835', color: 'black', fontWeight: 'bold', '&:hover': { bgcolor: '#fbc02d' } }}
+                        onClick={() => openModal('history', item)}
+                    >
+                        Historial
+                    </Button>
+                    <Button 
+                        variant="contained" size="small" 
+                        sx={{ bgcolor: '#1976d2', fontWeight: 'bold' }}
+                        onClick={() => openModal('maint', item)}
+                    >
+                        Mantenimiento
+                    </Button>
+                    <Button 
+                        variant="contained" size="small" 
+                        sx={{ bgcolor: '#00e676', fontWeight: 'bold', color: 'black' }}
+                        onClick={() => openModal('update', item)}
+                    >
+                        Actualizar
+                    </Button>
+                </Box>
+            </Paper>
+        ))}
+      </Box>
+
+      {/* --- MODAL AGREGAR (Blanco Limpio) --- */}
+      <Dialog open={openAdd} onClose={() => setOpenAdd(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">Agregar Máquina</DialogTitle>
+        <DialogContent>
+            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField select label="Tipo de Equipo" fullWidth value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value})}>
+                    <MenuItem value="Computadora">Computadora</MenuItem>
+                    <MenuItem value="Impresora">Impresora</MenuItem>
+                </TextField>
+                <TextField label="Código del equipo" fullWidth value={formData.code} onChange={(e) => setFormData({...formData, code: e.target.value})} placeholder="Ingresa código"/>
+                <TextField select label="Estado actual" fullWidth value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}>
+                    <MenuItem value="Operativa">Operativa</MenuItem>
+                    <MenuItem value="Fuera de Servicio">Fuera de Servicio</MenuItem>
+                </TextField>
+                <TextField label="Área" fullWidth value={formData.area} onChange={(e) => setFormData({...formData, area: e.target.value})} placeholder="Ingresa el área"/>
+                <TextField type="date" label="Fecha de adquisición" InputLabelProps={{ shrink: true }} fullWidth />
+            </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+            <Button onClick={handleSaveItem} variant="contained" fullWidth sx={{ bgcolor: '#29b6f6' }}>Guardar</Button>
+            <Button onClick={() => setOpenAdd(false)} variant="contained" fullWidth color="error">Cancelar</Button>
+        </DialogActions>
+      </Dialog>
+
+       {/* --- MODAL ACTUALIZAR (Igual al Agregar) --- */}
+       <Dialog open={openUpdate} onClose={() => setOpenUpdate(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">Actualizar Máquina</DialogTitle>
+        <DialogContent>
+            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField select label="Tipo de Equipo" fullWidth value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value})}>
+                    <MenuItem value="Computadora">Computadora</MenuItem>
+                    <MenuItem value="Impresora">Impresora</MenuItem>
+                </TextField>
+                <TextField label="Código del equipo" fullWidth value={formData.code} onChange={(e) => setFormData({...formData, code: e.target.value})} />
+                <TextField select label="Estado actual" fullWidth value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}>
+                    <MenuItem value="Operativa">Operativa</MenuItem>
+                    <MenuItem value="Fuera de Servicio">Fuera de Servicio</MenuItem>
+                </TextField>
+            </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+            <Button onClick={handleUpdateItem} variant="contained" fullWidth sx={{ bgcolor: '#29b6f6' }}>Actualizar</Button>
+            <Button onClick={() => setOpenUpdate(false)} variant="contained" fullWidth color="error">Cancelar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* --- MODAL MANTENIMIENTO --- */}
+      <Dialog open={openMaint} onClose={() => setOpenMaint(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight="bold">Registro de mantenimiento</DialogTitle>
+        <DialogContent>
+            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField label="Empresa/Institución" fullWidth placeholder="Especificar cargo" />
+                <Box display="flex" gap={1}>
+                    <TextField label="Técnico Responsable" fullWidth value={maintData.technician} onChange={(e) => setMaintData({...maintData, technician: e.target.value})} />
+                    <TextField select label="Tipo" fullWidth value={maintData.type} onChange={(e) => setMaintData({...maintData, type: e.target.value})}>
+                        <MenuItem value="Preventivo">Preventivo</MenuItem>
+                        <MenuItem value="Correctivo">Correctivo</MenuItem>
+                    </TextField>
+                </Box>
+                <TextField type="date" label="Fecha" InputLabelProps={{ shrink: true }} fullWidth />
+                <TextField label="Observaciones" multiline rows={3} fullWidth value={maintData.description} onChange={(e) => setMaintData({...maintData, description: e.target.value})} />
+            </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+            <Button onClick={handleSaveMaintenance} variant="contained" fullWidth sx={{ bgcolor: '#29b6f6' }}>Guardar</Button>
+            <Button onClick={() => setOpenMaint(false)} variant="contained" fullWidth color="error">Cancelar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* --- MODAL HISTORIAL --- */}
+      <Dialog open={openHistory} onClose={() => setOpenHistory(false)} maxWidth="sm" fullWidth>
+        <DialogTitle fontWeight="bold">Historial de Mantenimiento</DialogTitle>
+        <Typography variant="body2" sx={{ px: 3, mb: 2 }}>Equipo: {selectedItem?.name}</Typography>
+        <DialogContent dividers>
+            <Grid container spacing={1} sx={{ mb: 1, fontWeight: 'bold', borderBottom: '2px solid #29b6f6', pb: 1 }}>
+                <Grid item xs={3}>Fecha</Grid>
+                <Grid item xs={2}>Tipo</Grid>
+                <Grid item xs={3}>Técnico</Grid>
+                <Grid item xs={4}>Observaciones</Grid>
+            </Grid>
+            {(!selectedItem?.maintenance_history || selectedItem.maintenance_history.length === 0) ? (
+                <Typography align="center" sx={{ mt: 2, color: 'text.secondary' }}>No hay mantenimientos registrados.</Typography>
+            ) : (
+                selectedItem.maintenance_history.map((log, idx) => (
+                    <Grid container spacing={1} key={idx} sx={{ py: 1, borderBottom: '1px solid #eee' }}>
+                        <Grid item xs={3}>{log.date}</Grid>
+                        <Grid item xs={2}>{log.type}</Grid>
+                        <Grid item xs={3}>{log.technician}</Grid>
+                        <Grid item xs={4}>{log.description}</Grid>
+                    </Grid>
+                ))
+            )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+            <Button onClick={() => setOpenHistory(false)} variant="contained" color="secondary">Regresar</Button>
+        </DialogActions>
+      </Dialog>
+
     </Container>
   );
 }

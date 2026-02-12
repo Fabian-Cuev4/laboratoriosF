@@ -2,7 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
-import LabDetailPage from "./pages/LabDetailPage"; // Asegúrate de que el archivo exista!
+import LabDetailPage from "./pages/LabDetailPage";
+import ReportPage from "./pages/ReportPage";
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         {/* Rutas protegidas (por ahora simples) */}
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/lab/:id" element={<LabDetailPage />} />
+        <Route path="/reportes" element={<ReportPage />} />
       </Routes>
     </BrowserRouter>
   );

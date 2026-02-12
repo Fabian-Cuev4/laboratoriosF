@@ -1,182 +1,161 @@
 import { useEffect, useState } from "react";
-import { 
-  Container, Typography, Grid, Card, CardContent, CardActions, 
-  Button, Chip, CircularProgress, Box, AppBar, Toolbar, Alert 
-} from "@mui/material";
+import { Container, Typography, Grid, Card, CardContent, Button, Chip, Box, LinearProgress, Paper, AppBar, Toolbar, IconButton } from "@mui/material";
+import DnsIcon from '@mui/icons-material/Dns';
+import LogoutIcon from '@mui/icons-material/Logout';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import ComputerIcon from '@mui/icons-material/Computer';
-import AddIcon from '@mui/icons-material/Add';
-import DnsIcon from '@mui/icons-material/Dns'; // Icono para servidor
 import api from "../api/axios";
 import { useNavigate } from "react-router-dom";
 
 function DashboardPage() {
   const [servers, setServers] = useState([]);
   const [labs, setLabs] = useState([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  
-  // Obtenemos el usuario, evitando errores si es null
-  const user = JSON.parse(localStorage.getItem("user")) || "Usuario";
+  const user = JSON.parse(localStorage.getItem("user")) || "Admin";
 
-  // 1. Cargar laboratorios al iniciar (MongoDB)
-  useEffect(() => {
-    const fetchLabs = async () => {
-      try {
-        const response = await api.get("/laboratories/");
-        setLabs(response.data);
-      } catch (error) {
-        console.error("Error cargando laboratorios:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLabs();
-  }, []);
-
-  // 2. Polling para ver el estado de los servidores (Redis)
-  // Se ejecuta cada 2 segundos para actualizar las luces verdes
+  // Polling para Redis (Load Balancer)
   useEffect(() => {
     const fetchStatus = async () => {
       try {
         const response = await api.get("/system/status");
         setServers(response.data);
       } catch (error) {
-        console.error("Error obteniendo estado del cluster");
+        console.error("Error fetching status");
+        setServers([]);
       }
     };
-
-    fetchStatus(); // Ejecutar inmediatamente al cargar
-    const interval = setInterval(fetchStatus, 2000); // Y luego cada 2s
-
-    return () => clearInterval(interval); // Limpiar al salir
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 2000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Función para crear un lab de prueba (Demo)
-  const handleCreateTestLab = async () => {
-    try {
-        const randomNum = Math.floor(Math.random() * 100);
-        const newLab = {
-          name: `Laboratorio ${randomNum}`,
-          location: "Edificio de Sistemas",
-          description: "Lab de prueba generado automáticamente",
-          items: []
-        };
-        await api.post("/laboratories/", newLab);
-        window.location.reload(); // Recargar para ver el nuevo lab
-    } catch (error) {
-        alert("Error creando el laboratorio. Revisa la consola.");
-        console.error(error);
-    }
-  };
+  // Cargar Labs (MongoDB)
+  useEffect(() => {
+    api.get("/laboratories/").then(res => setLabs(res.data)).catch(err => console.error(err));
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("user");
     navigate("/login");
   };
 
+  // Disponibilidad: Si hay al menos 1 servidor, 100%. Si no, 0%.
+  const availability = servers.length > 0 ? 100 : 0;
+
   return (
-    <Box sx={{ flexGrow: 1 }}>
-      {/* --- NAVBAR --- */}
-      <AppBar position="static">
+    <Box sx={{ flexGrow: 1, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
+      {/* --- NAVBAR SUPERIOR --- */}
+      <AppBar position="static" elevation={0} sx={{ bgcolor: '#2196f3' }}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            SISLAB - Dashboard
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
+            SISLAB Dashboard
           </Typography>
-          <Typography sx={{ mr: 2 }}>Hola, {user}</Typography>
-          <Button color="inherit" onClick={handleLogout}>Salir</Button>
+          <Typography variant="body1" sx={{ mr: 2 }}>Hola, {user}</Typography>
+          <Button color="inherit" startIcon={<LogoutIcon />} onClick={handleLogout}>
+            Cerrar Sesión
+          </Button>
         </Toolbar>
       </AppBar>
 
       <Container sx={{ mt: 4 }}>
+        <Typography variant="h4" gutterBottom fontWeight="bold" color="text.primary">
+          Panel de Control
+        </Typography>
+        <Typography variant="subtitle1" color="text.secondary" mb={4}>
+          Monitoreo de Infraestructura y Gestión de Laboratorios
+        </Typography>
 
-        {/* --- SECCIÓN: MONITOREO DE SERVIDORES (REDIS) --- */}
-        <Box mb={4} p={3} sx={{ bgcolor: '#e3f2fd', borderRadius: 2, border: '1px solid #90caf9', boxShadow: 1 }}>
-          <Typography variant="h6" gutterBottom display="flex" alignItems="center" color="primary.dark">
-            <DnsIcon sx={{ mr: 1 }} /> Estado del Cluster (Redis Heartbeat)
-          </Typography>
+        {/* --- SECCIÓN LOAD BALANCER (Redis) --- */}
+        <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 2, border: '1px solid #e0e0e0' }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography variant="h6" fontWeight="bold">Estado del Cluster (Load Balancer)</Typography>
+            <Chip label={availability === 100 ? "SISTEMA OPERATIVO" : "SISTEMA CRÍTICO"} color={availability === 100 ? "success" : "error"} variant="outlined" />
+          </Box>
           
-          <Grid container spacing={2} alignItems="center">
+          <Grid container spacing={2} mb={3}>
+            {/* Renderizamos SOLO los servidores reales que vienen de Redis */}
             {servers.length > 0 ? (
-                servers.map((server) => (
-                  <Grid item key={server.port}>
-                    <Chip 
-                      icon={<DnsIcon style={{ color: 'white' }}/>}
-                      label={`Instancia Puerto: ${server.port} (${server.status})`} 
-                      color={server.status === "Online" ? "success" : "error"} 
-                      variant="filled"
-                      sx={{ fontWeight: 'bold' }}
-                    />
-                  </Grid>
+                servers.map((server, index) => (
+                    <Grid item xs={12} md={4} key={server.port}>
+                    <Card sx={{ borderLeft: '5px solid #4caf50', boxShadow: 2 }}>
+                        <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 2 }}>
+                        <Box>
+                            <Typography variant="subtitle2" color="text.secondary">Instancia API #{index + 1}</Typography>
+                            <Typography variant="h6" fontWeight="bold">Puerto {server.port}</Typography>
+                        </Box>
+                        <Chip label="ONLINE" color="success" size="small" sx={{ fontWeight: 'bold' }} />
+                        </CardContent>
+                    </Card>
+                    </Grid>
                 ))
             ) : (
                 <Grid item xs={12}>
-                     <Alert severity="warning">Esperando señal de los servidores...</Alert>
+                    <Card sx={{ borderLeft: '5px solid #f44336', bgcolor: '#ffebee' }}>
+                        <CardContent>
+                            <Typography variant="h6" color="error">⚠️ No hay servidores API disponibles</Typography>
+                            <Typography variant="body2">El cluster de Redis no reporta latidos.</Typography>
+                        </CardContent>
+                    </Card>
                 </Grid>
             )}
           </Grid>
-        </Box>
 
-        {/* --- SECCIÓN: LABORATORIOS (MONGODB) --- */}
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-          <Typography variant="h4" component="h1" fontWeight="bold">
-            Laboratorios Disponibles
-          </Typography>
-          <Button 
-            variant="contained" 
-            size="large"
-            startIcon={<AddIcon />} 
-            onClick={handleCreateTestLab}
-          >
-            Crear Lab (Demo)
-          </Button>
-        </Box>
+          {/* Barra de Disponibilidad */}
+          <Box sx={{ width: '100%', mt: 2 }}>
+            <LinearProgress 
+              variant="determinate" 
+              value={availability} 
+              sx={{ height: 10, borderRadius: 5, bgcolor: '#e0e0e0', '& .MuiLinearProgress-bar': { bgcolor: availability > 0 ? '#00e676' : 'red' } }} 
+            />
+            <Box display="flex" justifyContent="center" mt={1}>
+                <Typography variant="caption" fontWeight="bold" color="text.secondary">{availability}% DISPONIBILIDAD GARANTIZADA</Typography>
+            </Box>
+          </Box>
+        </Paper>
 
-        {loading ? (
-          <Box display="flex" justifyContent="center" mt={5}><CircularProgress /></Box>
-        ) : labs.length === 0 ? (
-          <Typography variant="h6" align="center" color="text.secondary" mt={5}>
-            No hay laboratorios creados aún. ¡Crea el primero!
-          </Typography>
-        ) : (
-          <Grid container spacing={3}>
-            {labs.map((lab) => (
-              <Grid item xs={12} sm={6} md={4} key={lab._id || lab.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', transition: '0.3s', '&:hover': { transform: 'scale(1.02)', boxShadow: 6 } }}>
-                  <CardContent sx={{ flexGrow: 1 }}>
-                    <Typography gutterBottom variant="h5" component="div" fontWeight="bold">
-                      {lab.name}
+        {/* --- SECCIÓN LABORATORIOS (MongoDB) --- */}
+        <Grid container spacing={3}>
+            {/* Tarjeta de Resumen */}
+            <Grid item xs={12} md={4}>
+                <Paper elevation={0} sx={{ p: 3, height: '100%', borderRadius: 2, border: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                    <Typography variant="h6" gutterBottom>Total Activos</Typography>
+                    <Typography variant="h2" fontWeight="bold" color="primary">
+                        {labs.reduce((acc, lab) => acc + (lab.items?.length || 0), 0)}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" paragraph>
-                      {lab.description}
-                    </Typography>
-                    <Typography variant="caption" display="block" gutterBottom sx={{ fontWeight: 'bold', color: '#555' }}>
-                      📍 Ubicación: {lab.location}
-                    </Typography>
-                    
-                    <Chip 
-                      icon={<ComputerIcon />} 
-                      label={`${lab.items ? lab.items.length : 0} Equipos`} 
-                      color="primary" 
-                      variant="outlined" 
-                      size="small" 
-                      sx={{ mt: 2 }}
-                    />
-                  </CardContent>
-                  <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => navigate(`/lab/${lab._id}`)} // Agregamos esto
-                    >
-                      Ver Inventario
-                    </Button>
-                    <Button size="small" color="secondary">Editar</Button>
-                  </CardActions>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        )}
+                    <Typography variant="body2" color="text.secondary">Máquinas Registradas</Typography>
+                    <Button startIcon={<RefreshIcon />} sx={{ mt: 2 }} onClick={() => window.location.reload()}>Actualizar</Button>
+                </Paper>
+            </Grid>
+
+            {/* Lista de Laboratorios */}
+            <Grid item xs={12} md={8}>
+                <Typography variant="h6" gutterBottom fontWeight="bold">Mis Laboratorios</Typography>
+                <Grid container spacing={2}>
+                    {labs.map((lab) => (
+                    <Grid item xs={12} sm={6} key={lab._id}>
+                        <Card 
+                            sx={{ 
+                                cursor: 'pointer', transition: '0.3s', 
+                                '&:hover': { transform: 'translateY(-3px)', boxShadow: 3 },
+                                borderLeft: '5px solid #2196f3'
+                            }} 
+                            onClick={() => navigate(`/lab/${lab._id || lab.id}`)}
+                        >
+                            <CardContent sx={{ display: 'flex', alignItems: 'center' }}>
+                                <ComputerIcon fontSize="large" sx={{ color: '#2196f3', mr: 2 }} />
+                                <Box>
+                                    <Typography variant="h6" fontWeight="bold">{lab.name}</Typography>
+                                    <Typography variant="body2" color="text.secondary">{lab.location}</Typography>
+                                    <Chip label={`${lab.items?.length || 0} Equipos`} size="small" sx={{ mt: 1, bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 'bold' }} />
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    ))}
+                    {labs.length === 0 && <Typography variant="body2" sx={{ ml: 2, mt: 2 }}>No hay laboratorios. Crea uno desde la base de datos o API.</Typography>}
+                </Grid>
+            </Grid>
+        </Grid>
       </Container>
     </Box>
   );
