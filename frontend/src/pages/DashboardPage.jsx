@@ -1,163 +1,117 @@
 import { useEffect, useState } from "react";
-import { Container, Typography, Grid, Card, CardContent, Button, Chip, Box, LinearProgress, Paper, AppBar, Toolbar, IconButton } from "@mui/material";
-import DnsIcon from '@mui/icons-material/Dns';
-import LogoutIcon from '@mui/icons-material/Logout';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import ComputerIcon from '@mui/icons-material/Computer';
+import { Container, Typography, Grid, Paper, Box, Chip, Alert } from "@mui/material";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import StorageIcon from '@mui/icons-material/Storage';
+import SpeedIcon from '@mui/icons-material/Speed';
 import api from "../api/axios";
-import { useNavigate } from "react-router-dom";
 
 function DashboardPage() {
   const [servers, setServers] = useState([]);
-  const [labs, setLabs] = useState([]);
-  const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem("user")) || "Admin";
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Polling para Redis (Load Balancer)
+  // Función para obtener estado (Polling cada 2 segundos)
+  const fetchStatus = async () => {
+    try {
+      const res = await api.get("/system/status");
+      // res.data trae: [{port: "...", status: "...", requests: 150}, ...]
+      setServers(res.data);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError("No hay conexión con el Balanceador de Carga");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const response = await api.get("/system/status");
-        setServers(response.data);
-      } catch (error) {
-        console.error("Error fetching status");
-        setServers([]);
-      }
-    };
     fetchStatus();
-    const interval = setInterval(fetchStatus, 2000);
+    const interval = setInterval(fetchStatus, 2000); // Actualizar cada 2s para ver animación
     return () => clearInterval(interval);
   }, []);
 
-  // Cargar Labs (MongoDB)
-  useEffect(() => {
-    api.get("/laboratories/").then(res => setLabs(res.data)).catch(err => console.error(err));
-  }, []);
-
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    navigate("/login");
-  };
-
-  // Disponibilidad: Si hay al menos 1 servidor, 100%. Si no, 0%.
-  const availability = servers.length > 0 ? 100 : 0;
+  // Calcular total de peticiones para mostrar métrica global
+  const totalRequests = servers.reduce((acc, curr) => acc + (curr.requests || 0), 0);
 
   return (
-    <Box sx={{ flexGrow: 1, bgcolor: '#f5f5f5', minHeight: '100vh' }}>
-      {/* --- NAVBAR SUPERIOR --- */}
-      <AppBar position="static" elevation={0} sx={{ bgcolor: '#2196f3' }}>
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
-            SISLAB Dashboard
-          </Typography>
-          <Typography variant="body1" sx={{ mr: 2 }}>Hola, {user}</Typography>
-          <Button color="inherit" startIcon={<LogoutIcon />} onClick={handleLogout}>
-            Cerrar Sesión
-          </Button>
-        </Toolbar>
-      </AppBar>
-
-      <Container sx={{ mt: 4 }}>
-        <Typography variant="h4" gutterBottom fontWeight="bold" color="text.primary">
-          Panel de Control
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      {/* HEADER */}
+      <Box sx={{ mb: 4, textAlign: 'center' }}>
+        <Typography variant="h4" fontWeight="bold" gutterBottom>
+           Panel de Control de Arquitectura
         </Typography>
-        <Typography variant="subtitle1" color="text.secondary" mb={4}>
-          Monitoreo de Infraestructura y Gestión de Laboratorios
+        <Typography variant="subtitle1" color="text.secondary">
+          Monitoreo en tiempo real del Clúster de Microservicios y Balanceo de Carga
         </Typography>
+      </Box>
 
-        {/* --- SECCIÓN LOAD BALANCER (Redis) --- */}
-        <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 2, border: '1px solid #e0e0e0' }}>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6" fontWeight="bold">Estado del Cluster (Load Balancer)</Typography>
-            <Chip label={availability === 100 ? "SISTEMA OPERATIVO" : "SISTEMA CRÍTICO"} color={availability === 100 ? "success" : "error"} variant="outlined" />
-          </Box>
-          
-          <Grid container spacing={2} mb={3}>
-            {/* Renderizamos SOLO los servidores reales que vienen de Redis */}
-            {servers.length > 0 ? (
-                servers.map((server, index) => (
-                    <Grid item xs={12} md={4} key={server.port}>
-                    <Card sx={{ borderLeft: '5px solid #4caf50', boxShadow: 2 }}>
-                        <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 2 }}>
-                        <Box>
-                            <Typography variant="subtitle2" color="text.secondary">Instancia API #{index + 1}</Typography>
-                            <Typography variant="h6" fontWeight="bold">Puerto {server.port}</Typography>
-                        </Box>
-                        <Chip label="ONLINE" color="success" size="small" sx={{ fontWeight: 'bold' }} />
-                        </CardContent>
-                    </Card>
-                    </Grid>
-                ))
-            ) : (
-                <Grid item xs={12}>
-                    <Card sx={{ borderLeft: '5px solid #f44336', bgcolor: '#ffebee' }}>
-                        <CardContent>
-                            <Typography variant="h6" color="error">⚠️ No hay servidores API disponibles</Typography>
-                            <Typography variant="body2">El cluster de Redis no reporta latidos.</Typography>
-                        </CardContent>
-                    </Card>
-                </Grid>
-            )}
-          </Grid>
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-          {/* Barra de Disponibilidad */}
-          <Box sx={{ width: '100%', mt: 2 }}>
-            <LinearProgress 
-              variant="determinate" 
-              value={availability} 
-              sx={{ height: 10, borderRadius: 5, bgcolor: '#e0e0e0', '& .MuiLinearProgress-bar': { bgcolor: availability > 0 ? '#00e676' : 'red' } }} 
-            />
-            <Box display="flex" justifyContent="center" mt={1}>
-                <Typography variant="caption" fontWeight="bold" color="text.secondary">{availability}% DISPONIBILIDAD GARANTIZADA</Typography>
-            </Box>
-          </Box>
-        </Paper>
-
-        {/* --- SECCIÓN LABORATORIOS (MongoDB) --- */}
-        <Grid container spacing={3}>
-            {/* Tarjeta de Resumen */}
-            <Grid item xs={12} md={4}>
-                <Paper elevation={0} sx={{ p: 3, height: '100%', borderRadius: 2, border: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                    <Typography variant="h6" gutterBottom>Total Activos</Typography>
-                    <Typography variant="h2" fontWeight="bold" color="primary">
-                        {labs.reduce((acc, lab) => acc + (lab.items?.length || 0), 0)}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">Máquinas Registradas</Typography>
-                    <Button startIcon={<RefreshIcon />} sx={{ mt: 2 }} onClick={() => window.location.reload()}>Actualizar</Button>
-                </Paper>
-            </Grid>
-
-            {/* Lista de Laboratorios */}
-            <Grid item xs={12} md={8}>
-                <Typography variant="h6" gutterBottom fontWeight="bold">Mis Laboratorios</Typography>
-                <Grid container spacing={2}>
-                    {labs.map((lab) => (
-                    <Grid item xs={12} sm={6} key={lab._id}>
-                        <Card 
-                            sx={{ 
-                                cursor: 'pointer', transition: '0.3s', 
-                                '&:hover': { transform: 'translateY(-3px)', boxShadow: 3 },
-                                borderLeft: '5px solid #2196f3'
-                            }} 
-                            onClick={() => navigate(`/lab/${lab._id || lab.id}`)}
-                        >
-                            <CardContent sx={{ display: 'flex', alignItems: 'center' }}>
-                                <ComputerIcon fontSize="large" sx={{ color: '#2196f3', mr: 2 }} />
-                                <Box>
-                                    <Typography variant="h6" fontWeight="bold">{lab.name}</Typography>
-                                    <Typography variant="body2" color="text.secondary">{lab.location}</Typography>
-                                    <Chip label={`${lab.items?.length || 0} Equipos`} size="small" sx={{ mt: 1, bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 'bold' }} />
-                                </Box>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                    ))}
-                    {labs.length === 0 && <Typography variant="body2" sx={{ ml: 2, mt: 2 }}>No hay laboratorios. Crea uno desde la base de datos o API.</Typography>}
-                </Grid>
-            </Grid>
+      <Grid container spacing={3}>
+        {/* KPI: TOTAL PETICIONES */}
+        <Grid item xs={12} md={4}>
+            <Paper sx={{ p: 3, display: 'flex', alignItems: 'center', gap: 2, bgcolor: '#e3f2fd' }}>
+                <SpeedIcon sx={{ fontSize: 40, color: '#1565c0' }}/>
+                <Box>
+                    <Typography variant="h6">Tráfico Total</Typography>
+                    <Typography variant="h3" fontWeight="bold" color="#1565c0">{totalRequests}</Typography>
+                    <Typography variant="caption">Peticiones procesadas por Nginx</Typography>
+                </Box>
+            </Paper>
         </Grid>
-      </Container>
-    </Box>
+
+        {/* KPI: SERVIDORES ACTIVOS */}
+        <Grid item xs={12} md={8}>
+            <Paper sx={{ p: 3 }}>
+                <Typography variant="h6" gutterBottom>Estado de Nodos (Heartbeat Redis)</Typography>
+                <Box display="flex" gap={2} flexWrap="wrap">
+                    {servers.map((srv, idx) => (
+                        <Chip 
+                            key={idx}
+                            icon={<StorageIcon />}
+                            label={`Nodo: ${srv.port} | ${srv.status}`}
+                            color={srv.status === "Online" ? "success" : "error"}
+                            variant={srv.status === "Online" ? "filled" : "outlined"}
+                        />
+                    ))}
+                </Box>
+            </Paper>
+        </Grid>
+
+        {/* GRÁFICA "KAFKA UI" - BALANCEO DE CARGA */}
+        <Grid item xs={12}>
+            <Paper elevation={3} sx={{ p: 4, borderRadius: 2 }}>
+                <Typography variant="h5" fontWeight="bold" sx={{ mb: 1 }}>
+                    Distribución de Carga (Round Robin)
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Visualización en tiempo real de cómo Nginx reparte las peticiones entre los contenedores Docker.
+                    (Usa K6 para ver las barras subir).
+                </Typography>
+                
+                <Box sx={{ height: 400, width: '100%' }}>
+                    <ResponsiveContainer>
+                        <BarChart data={servers}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="port" label={{ value: 'ID del Contenedor (Hostname)', position: 'insideBottom', offset: -5 }} />
+                            <YAxis label={{ value: 'Peticiones Atendidas', angle: -90, position: 'insideLeft' }} />
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#333', color: '#fff' }}
+                                itemStyle={{ color: '#fff' }}
+                            />
+                            <Bar dataKey="requests" name="Peticiones" animationDuration={500}>
+                                {servers.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={index % 2 === 0 ? "#4caf50" : "#2196f3"} />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </Box>
+            </Paper>
+        </Grid>
+      </Grid>
+    </Container>
   );
 }
 

@@ -1,104 +1,97 @@
 import asyncio
 import os
-import socket # <--- IMPORTANTE: Para obtener el ID del contenedor
+import socket
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-# Importamos las conexiones y routers
+# Importamos DB y Routers
 from backend.database import mysql_engine, Base, mongo_client, redis_client
 from backend.routers import auth, inventory
+# IMPORTANTE: Importar el modelo para que SQLAlchemy cree la tabla
+from backend.models.inventory import ItemModel 
 
-# Detectamos el puerto (Por defecto 8001 si no está definido)
 PORT = os.getenv("PORT", "8000") 
-
-# Obtenemos el ID único del contenedor (Ej: a123b456...)
-# Esto es lo que diferencia a S1, S2 y S3 en el clúster
 HOSTNAME = socket.gethostname()
 
-# --- TAREA DE FONDO: HEARTBEAT (LATIDO) ---
+# --- HEARTBEAT (Latido) ---
 async def send_heartbeat():
-    """Envía una señal a Redis cada 3 segundos diciendo 'Estoy vivo'"""
     while True:
         try:
-            # Clave: instance:ID_CONTENEDOR, Valor: "Online", Expira en: 5s
-            # Usamos HOSTNAME para que cada réplica sea única
+            # 1. Decir "Estoy Vivo" (Status)
             await redis_client.setex(f"instance:{HOSTNAME}", 5, "Online")
+            # 2. Inicializar el contador en 0 si no existe (para que salga en la gráfica)
+            await redis_client.setnx(f"requests:{HOSTNAME}", 0)
         except Exception as e:
-            print(f"❌ Error Heartbeat Redis: {e}")
+            print(f"❌ Error Redis: {e}")
         await asyncio.sleep(3)
 
-# --- CICLO DE VIDA DE LA APP ---
+# --- CICLO DE VIDA ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"🚀 --- INICIANDO SISLAB (Host: {HOSTNAME} - Puerto {PORT}) ---")
+    print(f"🚀 INICIANDO {HOSTNAME} en Puerto {PORT}")
     
-    # 1. Verificar MySQL (Solo logs, para no saturar si hay muchas réplicas)
+    # Crear tablas en MySQL (Auth e Inventario)
     try:
-        # En producción, las migraciones se hacen aparte, pero aquí está bien
-        Base.metadata.create_all(bind=mysql_engine) 
-        print("✅ MySQL: Sincronizado.")
+        Base.metadata.create_all(bind=mysql_engine)
+        print("✅ MySQL: Tablas sincronizadas.")
     except Exception as e: print(f"❌ MySQL Error: {e}")
 
-    # 2. Verificar Mongo
-    try:
-        await mongo_client.admin.command('ping')
-        print("✅ MongoDB: Conectado.")
-    except Exception as e: print(f"❌ MongoDB Error: {e}")
-
-    # 3. Iniciar el Heartbeat en segundo plano
+    # Iniciar Heartbeat
     asyncio.create_task(send_heartbeat())
-    print(f"💓 Heartbeat iniciado para el contenedor {HOSTNAME}")
-
-    yield # Aquí corre la aplicación...
-
-    print("🛑 --- APAGANDO SISTEMA ---")
+    yield
+    print("🛑 APAGANDO SISTEMA")
 
 app = FastAPI(lifespan=lifespan)
 
-# --- CONFIGURACIÓN CORS ---
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "*", # Permitimos todo para facilitar la demo con Nginx
-]
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"], # Permitir todo para la demo
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- REGISTRAR RUTAS ---
+# Rutas
 app.include_router(auth.router)
 app.include_router(inventory.router)
 
-# --- EL ENDPOINT QUE TE FALTABA (DASHBOARD) ---
+# --- ENDPOINT DASHBOARD (Consolidado) ---
 @app.get("/system/status", tags=["Sistema"])
 async def get_system_status():
-    """Lee Redis para ver qué servidores están vivos y alimenta el Dashboard"""
+    """Devuelve estado (Cajas Verdes) Y tráfico (Barras)"""
     instances = []
-    # Buscamos todas las claves que empiecen por "instance:*"
+    # Buscamos claves de instancias
     keys = await redis_client.keys("instance:*")
     
     for key in keys:
-        # key viene como "instance:a1b2c3d4..."
-        # El frontend espera un campo "port", le mandamos el hostname ahí para que lo muestre
         hostname_id = key.split(":")[1]
         status = await redis_client.get(key)
-        instances.append({"port": hostname_id, "status": status})
+        # Buscamos cuántas peticiones ha atendido este servidor
+        count = await redis_client.get(f"requests:{hostname_id}")
+        
+        instances.append({
+            "port": hostname_id,    # ID del servidor
+            "status": status,       # Online/Offline
+            "requests": int(count) if count else 0 # Número para la gráfica
+        })
     
-    # Ordenamos para que no bailen en la pantalla
     instances.sort(key=lambda x: x["port"])
     return instances
 
+# --- ENDPOINT QUE GOLPEA K6 ---
 @app.get("/")
-def read_root():
-    # Retornamos el HOSTNAME para saber quién respondió la petición (S1, S2 o S3)
+async def read_root():
+    # INCREMENTAR CONTADOR DE TRÁFICO
+    # Cada vez que K6 entra aquí, sube +1 en Redis para este servidor
+    try:
+        await redis_client.incr(f"requests:{HOSTNAME}")
+    except:
+        pass
+
     return {
         "sistema": "SISLAB", 
-        "estado": "Operativo", 
-        "servidor_atendiendo": HOSTNAME
+        "servidor": HOSTNAME,
+        "mensaje": "Petición procesada correctamente"
     }

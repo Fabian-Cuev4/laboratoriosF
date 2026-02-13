@@ -11,6 +11,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import BuildIcon from '@mui/icons-material/Build';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import api from "../api/axios";
+import AssessmentIcon from '@mui/icons-material/Assessment';
 
 function LabDetailPage() {
   const { id } = useParams();
@@ -140,7 +141,7 @@ function LabDetailPage() {
       {/* BOTONERA SUPERIOR */}
       <Box sx={{ mb: 3, display: 'flex', gap: 1 }}>
         <Button variant="contained" sx={{ bgcolor: '#29b6f6' }} onClick={() => setOpenAdd(true)}>Agregar Máquina</Button>
-        <Button variant="contained" sx={{ bgcolor: '#29b6f6' }} onClick={() => navigate("/reportes")}>Generar Reporte</Button>
+        <Button variant="outlined" startIcon={<AssessmentIcon />} onClick={() => navigate("/reportes")}>Ir a Inventario Global (MySQL)</Button>
         <Button variant="contained" sx={{ bgcolor: '#29b6f6' }} onClick={() => navigate("/dashboard")}>Regresar</Button>
       </Box>
 
