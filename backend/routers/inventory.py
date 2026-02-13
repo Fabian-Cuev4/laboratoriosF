@@ -74,6 +74,19 @@ async def get_laboratory(id: str):
     del lab["_id"]
     return lab
 
+# 7. ELIMINAR LABORATORIO (MONGO)
+@router.delete("/{id}", response_description="Eliminar laboratorio")
+async def delete_laboratory(id: str):
+    if not ObjectId.is_valid(id):
+        raise HTTPException(status_code=400, detail="ID inválido")
+    
+    result = await mongo_db["laboratories"].delete_one({"_id": ObjectId(id)})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Laboratorio no encontrado")
+    
+    return {"message": "Laboratorio eliminado correctamente"}
+
 # --- ENDPOINT QUE FALTABA 1: AGREGAR ITEM A UN LAB (MONGO) ---
 @router.put("/{id}/add-item")
 async def add_item_to_lab(id: str, item: ItemCreate):
