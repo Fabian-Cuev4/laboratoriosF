@@ -95,3 +95,40 @@ async def read_root():
         "servidor": HOSTNAME,
         "mensaje": "Petición procesada correctamente"
     }
+
+
+@app.delete("/system/reset")
+async def reset_counters():
+    """Reinicia los contadores de las gráficas a cero"""
+    # 1. Busca las claves REALES (requests:*)
+    keys = await redis_client.keys("requests:*")
+    
+    # 2. Si encuentra alguna, las borra
+    if keys:
+        await redis_client.delete(*keys)
+        
+    # 3. Opcional: Reiniciar a 0 explícitamente para que no desaparezcan de la gráfica
+    # (Si las borras totalmente, podrían desaparecer las barras hasta el próximo heartbeat)
+    active_instances = await redis_client.keys("instance:*")
+    for instance in active_instances:
+        hostname = instance.split(":")[1]
+        await redis_client.set(f"requests:{hostname}", 0)
+
+    return {"message": "🧹 Contadores reiniciados correctamente"}
+
+# --- RUTA COMODÍN (CATCH-ALL) PARA DEMOS ---
+# Esto captura cualquier ruta no definida arriba (como /logo.png)
+# y cuenta la visita para que la gráfica se mueva.
+@app.get("/{full_path:path}")
+async def catch_all_demo(full_path: str):
+    try:
+        # ¡IMPORTANTE! Sumar al contador
+        await redis_client.incr(f"requests:{HOSTNAME}")
+    except Exception as e:
+        print(f"Error contando: {e}")
+
+    return {
+        "mensaje": "Ruta de demostración capturada", 
+        "ruta_simulada": full_path,
+        "servidor_atendiendo": HOSTNAME
+    }
