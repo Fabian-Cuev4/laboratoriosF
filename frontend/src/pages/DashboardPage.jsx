@@ -8,7 +8,8 @@ import ShuffleIcon from '@mui/icons-material/Shuffle';
 import LockIcon from '@mui/icons-material/Lock'; 
 import LinkIcon from '@mui/icons-material/Link'; 
 import EqualizerIcon from '@mui/icons-material/Equalizer'; 
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'; // <--- ÍCONO NUEVO
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined';
 import api from "../api/axios";
 import SystemHealthMonitor from "../components/SystemHealthMonitor";
 
@@ -21,6 +22,11 @@ function DashboardPage() {
   const [attacking, setAttacking] = useState(false);
   const [attackType, setAttackType] = useState(""); 
   const stopAttackRef = useRef(false);
+  
+  // ESTADOS PARA LA SATURACIÓN DE MYSQL
+  const [itemAttacking, setItemAttacking] = useState(false);
+  const [itemCount, setItemCount] = useState(0);
+  const stopItemAttackRef = useRef(false);
 
   // 1. POLLING DE ESTADO
   const fetchStatus = async () => {
@@ -63,9 +69,53 @@ function DashboardPage() {
 
   const stopAttack = () => {
       stopAttackRef.current = true;
+      setAttacking(false);
   };
 
-  // 3. FUNCIÓN RESET (NUEVA) 🧹
+  // 3. SATURADOR DE MYSQL (Crear Items)
+  const startItemAttack = async () => {
+      if (itemAttacking) return;
+      setItemAttacking(true);
+      setItemCount(0);
+      stopItemAttackRef.current = false;
+
+      const types = ["Computadora", "Servidor", "Impresora", "Monitor", "Teclado", "Mouse", "Switch"];
+      const statuses = ["Operativa", "Mantenimiento", "Fuera de Servicio"];
+      const areas = ["Sala 1", "Sala 2", "Cuarto TI", "Recepción", "Oficina", "Laboratorio"];
+
+      let count = 0;
+      const maxItems = 10;
+
+      const createItem = async () => {
+          if (stopItemAttackRef.current || count >= maxItems) {
+              setItemAttacking(false);
+              return;
+          }
+
+          try {
+              const randomCode = `AUTO-${Date.now()}-${count}`;
+              await api.post("/laboratories/items", {
+                  code: randomCode,
+                  type: types[Math.floor(Math.random() * types.length)],
+                  status: statuses[Math.floor(Math.random() * statuses.length)],
+                  area: areas[Math.floor(Math.random() * areas.length)]
+              });
+              count++;
+              setItemCount(count);
+          } catch (e) {
+              console.error("Error creando item:", e);
+          }
+          
+          setTimeout(createItem, 100);
+      };
+
+      createItem();
+  };
+
+  const stopItemAttack = () => {
+      stopItemAttackRef.current = true;
+      setItemAttacking(false);
+  };
   const handleReset = async () => {
       try {
           await api.delete("/system/reset");
@@ -78,11 +128,11 @@ function DashboardPage() {
 
   const totalRequests = servers.reduce((acc, curr) => acc + (curr.requests || 0), 0);
 
+  // Colores únicos para cada servidor (3 backends)
+  const serverColors = ["#4CAF50", "#2196F3", "#FF9800"]; // Verde, Azul, Naranja
+  
   const getBarColor = (index) => {
-      if (attackType === "IP" || attackType === "URI") return "#9c27b0"; 
-      if (attackType === "RR") return index % 2 === 0 ? "#4caf50" : "#2196f3"; 
-      if (attackType === "LEAST" || attackType === "TWO") return "#ff9800"; 
-      return "#00bcd4"; 
+      return serverColors[index % serverColors.length];
   };
 
   return (
@@ -114,6 +164,7 @@ function DashboardPage() {
                     
                     <Box display="flex" alignItems="center" gap={2}>
                         {attacking && <Chip label={`SIMULANDO: ${attackType}`} color="error" className="blink" />}
+                        {itemAttacking && <Chip label={`SATURANDO MySQL: ${itemCount}/10`} color="error" className="blink" />}
                         
                         {/* BOTÓN DE RESETEO */}
                         <MuiTooltip title="Reiniciar contadores a CERO">
@@ -122,7 +173,7 @@ function DashboardPage() {
                                 color="error" 
                                 startIcon={<DeleteSweepIcon />}
                                 onClick={handleReset}
-                                disabled={attacking} // No borrar mientras atacas
+                                disabled={attacking || itemAttacking}
                             >
                                 Limpiar Gráficas
                             </Button>
@@ -134,7 +185,7 @@ function DashboardPage() {
                     {/* BOTONES DE ALGORITMOS (IGUAL QUE ANTES) */}
                     <Grid item xs={12} sm={4}>
                         <Button fullWidth variant="contained" color="primary" startIcon={<SpeedIcon />}
-                            onClick={() => startAttack("/", "RR")} disabled={attacking}>
+                            onClick={() => startAttack("/", "RR")} disabled={attacking || itemAttacking}>
                             Round Robin (Default)
                         </Button>
                         <Typography variant="caption" display="block" align="center">Turno rotativo equitativo</Typography>
@@ -142,7 +193,7 @@ function DashboardPage() {
 
                     <Grid item xs={12} sm={4}>
                         <Button fullWidth variant="contained" color="warning" startIcon={<EqualizerIcon />}
-                            onClick={() => startAttack("/demo/least/", "LEAST")} disabled={attacking}>
+                            onClick={() => startAttack("/demo/least/", "LEAST")} disabled={attacking || itemAttacking}>
                             Least Connections
                         </Button>
                         <Typography variant="caption" display="block" align="center">Al servidor más libre</Typography>
@@ -150,7 +201,7 @@ function DashboardPage() {
 
                     <Grid item xs={12} sm={4}>
                         <Button fullWidth variant="contained" color="warning" startIcon={<ShuffleIcon />}
-                            onClick={() => startAttack("/demo/two/", "TWO")} disabled={attacking}>
+                            onClick={() => startAttack("/demo/two/", "TWO")} disabled={attacking || itemAttacking}>
                             Random Two
                         </Button>
                         <Typography variant="caption" display="block" align="center">Poder de dos opciones</Typography>
@@ -160,7 +211,7 @@ function DashboardPage() {
 
                     <Grid item xs={12} sm={4}>
                         <Button fullWidth variant="contained" color="secondary" startIcon={<LockIcon />}
-                            onClick={() => startAttack("/demo/ip/", "IP")} disabled={attacking}>
+                            onClick={() => startAttack("/demo/ip/", "IP")} disabled={attacking || itemAttacking}>
                             IP Hash
                         </Button>
                         <Typography variant="caption" display="block" align="center">Persistencia por Usuario</Typography>
@@ -168,7 +219,7 @@ function DashboardPage() {
 
                     <Grid item xs={12} sm={4}>
                         <Button fullWidth variant="contained" color="secondary" startIcon={<LinkIcon />}
-                            onClick={() => startAttack("/demo/uri/logo.png", "URI")} disabled={attacking}>
+                            onClick={() => startAttack("/demo/uri/logo.png", "URI")} disabled={attacking || itemAttacking}>
                             URI Hash (Caché)
                         </Button>
                         <Typography variant="caption" display="block" align="center">Persistencia por Recurso</Typography>
@@ -176,19 +227,49 @@ function DashboardPage() {
 
                     <Grid item xs={12} sm={4}>
                         <Button fullWidth variant="contained" color="info" startIcon={<BoltIcon />}
-                            onClick={() => startAttack("/demo/random/", "RAND")} disabled={attacking}>
+                            onClick={() => startAttack("/demo/random/", "RAND")} disabled={attacking || itemAttacking}>
                             Random (Puro)
                         </Button>
                         <Typography variant="caption" display="block" align="center">Aleatorio simple</Typography>
                     </Grid>
 
+                    <Grid item xs={12}><Divider sx={{ my: 1 }} /></Grid>
+
+                    {/* BOTÓN PARA SATURAR MYSQL */}
                     <Grid item xs={12}>
-                        <Button fullWidth variant="contained" color="error" size="large" onClick={stopAttack} disabled={!attacking}>
+                        <Button 
+                            fullWidth 
+                            variant="contained" 
+                            color="error" 
+                            startIcon={<StorageOutlinedIcon />}
+                            onClick={startItemAttack} 
+                            disabled={itemAttacking || attacking}
+                            sx={{ py: 1.5, fontWeight: 'bold' }}
+                        >
+                            🔥 SATURAR MySQL (Crear 10 Items)
+                        </Button>
+                        <Typography variant="caption" display="block" align="center" sx={{ mt: 1 }}>
+                            {itemAttacking ? `🔄 Creando items... ${itemCount}/10` : "Envía 10 items para sobrecargar MySQL"}
+                        </Typography>
+                    </Grid>
+
+                    <Grid item xs={12}>
+                        <Button 
+                            fullWidth 
+                            variant="contained" 
+                            color="error" 
+                            size="large" 
+                            onClick={() => {
+                                stopAttack();
+                                stopItemAttack();
+                            }} 
+                            disabled={!attacking && !itemAttacking}
+                        >
                             🛑 DETENER SIMULACIÓN
                         </Button>
                     </Grid>
                 </Grid>
-                {attacking && <LinearProgress sx={{ mt: 2 }} />}
+                {(attacking || itemAttacking) && <LinearProgress sx={{ mt: 2 }} />}
             </Paper>
         </Grid>
 
