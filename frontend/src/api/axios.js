@@ -10,7 +10,7 @@ const API_BASE_URL = window.location.hostname === 'localhost'
 const api = axios.create({
     baseURL: API_BASE_URL,
     withCredentials: true,
-    timeout: 10000 // Timeout de 10 segundos
+    timeout: 5000 // Timeout de 5 segundos
 });
 
 // Contador de reintentos

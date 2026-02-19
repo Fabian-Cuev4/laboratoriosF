@@ -19,6 +19,7 @@ function ReportPage() {
   const [open, setOpen] = useState(false);
   const [newItem, setNewItem] = useState({ code: "", type: "PC", status: "Operativa", area: "Sala 1" });
   const [saveStatus, setSaveStatus] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // --- NUEVO: ESTADOS PARA EDITAR ---
   const [openEdit, setOpenEdit] = useState(false);
@@ -44,23 +45,31 @@ function ReportPage() {
 
   // 2. AGREGAR (POST)
   const handleSave = async () => {
+      setIsSaving(true);
+      setSaveStatus({ type: "info", msg: "⏳ Guardando registro..." });
+      
       try {
           const res = await api.post("/laboratories/items", newItem);
           
           if (res.data.source === "MySQL") {
               setSaveStatus({ type: "success", msg: "✅ Guardado correctamente en MySQL (BD Principal)" });
           } else {
-              setSaveStatus({ type: "warning", msg: "⚠️ BD SATURADA. Guardado temporalmente en Redis (Respaldo)" });
+              setSaveStatus({ type: "success", msg: "✅ Guardado en caché (Respaldo). Se sincronizará con MySQL cuando esté disponible." });
           }
+          
           fetchItems(); 
+          
+          // Cerrar el modal después de 1 segundo
           setTimeout(() => {
              setOpen(false); 
              setSaveStatus(null);
              setNewItem({ code: "", type: "PC", status: "Operativa", area: "Sala 1" });
-          }, 2000);
+             setIsSaving(false);
+          }, 1000);
 
       } catch (e) {
-          setSaveStatus({ type: "error", msg: "Error crítico del sistema" });
+          setSaveStatus({ type: "error", msg: "❌ Error al guardar el registro" });
+          setIsSaving(false);
       }
   };
 
@@ -208,21 +217,27 @@ function ReportPage() {
               )}
               
               <TextField fullWidth margin="dense" label="Código (Ej: PC-100)" 
-                  value={newItem.code} onChange={e => setNewItem({...newItem, code: e.target.value})} 
+                  value={newItem.code} onChange={e => setNewItem({...newItem, code: e.target.value})}
+                  disabled={isSaving}
               />
               <TextField fullWidth margin="dense" label="Tipo" 
-                  value={newItem.type} onChange={e => setNewItem({...newItem, type: e.target.value})} 
+                  value={newItem.type} onChange={e => setNewItem({...newItem, type: e.target.value})}
+                  disabled={isSaving}
               />
               <TextField fullWidth margin="dense" label="Estado" 
-                  value={newItem.status} onChange={e => setNewItem({...newItem, status: e.target.value})} 
+                  value={newItem.status} onChange={e => setNewItem({...newItem, status: e.target.value})}
+                  disabled={isSaving}
               />
               <TextField fullWidth margin="dense" label="Área" 
-                  value={newItem.area} onChange={e => setNewItem({...newItem, area: e.target.value})} 
+                  value={newItem.area} onChange={e => setNewItem({...newItem, area: e.target.value})}
+                  disabled={isSaving}
               />
           </DialogContent>
           <DialogActions>
-              <Button onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button variant="contained" onClick={handleSave} disabled={!newItem.code}>Guardar</Button>
+              <Button onClick={() => setOpen(false)} disabled={isSaving}>Cancelar</Button>
+              <Button variant="contained" onClick={handleSave} disabled={!newItem.code || isSaving}>
+                {isSaving ? "⏳ Guardando..." : "Guardar"}
+              </Button>
           </DialogActions>
       </Dialog>
 
