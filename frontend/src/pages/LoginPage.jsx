@@ -8,15 +8,41 @@ import { useState } from "react";
 function LoginPage() {
   const { register, handleSubmit, formState: { errors } } = useForm();
   const [serverError, setServerError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const onSubmit = async (data) => {
+    setIsLoading(true);
+    setServerError(null);
+    
     try {
+      console.log("📤 Enviando login a:", api.defaults.baseURL + "/auth/login");
       const response = await api.post("/auth/login", data);
       localStorage.setItem("user", JSON.stringify(response.data.usuario));
+      localStorage.setItem("token", response.data.token || "");
       navigate("/dashboard");
     } catch (error) {
-      setServerError(error.response?.data?.detail || "Credenciales incorrectas o error de servidor");
+      console.error("❌ Error de login:", error);
+      
+      // Manejar diferentes tipos de errores
+      if (!error.response) {
+        // Error de red o conexión
+        if (error.code === 'ECONNABORTED') {
+          setServerError("⏱️ Timeout: El servidor tardó demasiado en responder");
+        } else if (error.message === 'Network Error') {
+          setServerError("🌐 Error de red: Verifica que el servidor esté disponible en " + api.defaults.baseURL);
+        } else {
+          setServerError(`🔌 Error de conexión: ${error.message}`);
+        }
+      } else if (error.response?.status === 404) {
+        setServerError("👤 Usuario no encontrado");
+      } else if (error.response?.status === 403) {
+        setServerError("🔒 Contraseña incorrecta");
+      } else {
+        setServerError(error.response?.data?.detail || "Error en el servidor");
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -33,22 +59,46 @@ function LoginPage() {
             Acceso SISLAB
           </Typography>
 
-          {serverError && <Alert severity="error" sx={{ width: '100%', mb: 2 }}>{serverError}</Alert>}
+          {serverError && (
+            <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
+              {serverError}
+              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                API: {api.defaults.baseURL}
+              </Typography>
+            </Alert>
+          )}
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ width: '100%' }}>
             <TextField
-              margin="normal" fullWidth label="Usuario" autoFocus
+              margin="normal" 
+              fullWidth 
+              label="Usuario" 
+              autoFocus
+              disabled={isLoading}
               {...register("username", { required: "Ingresa tu usuario" })}
-              error={!!errors.username} helperText={errors.username?.message}
+              error={!!errors.username} 
+              helperText={errors.username?.message}
             />
             <TextField
-              margin="normal" fullWidth label="Contraseña" type="password"
+              margin="normal" 
+              fullWidth 
+              label="Contraseña" 
+              type="password"
+              disabled={isLoading}
               {...register("password", { required: "Ingresa tu contraseña" })}
-              error={!!errors.password} helperText={errors.password?.message}
+              error={!!errors.password} 
+              helperText={errors.password?.message}
             />
             
-            <Button type="submit" fullWidth variant="contained" size="large" sx={{ mt: 3, mb: 2, py: 1.5 }}>
-              Ingresar al Sistema
+            <Button 
+              type="submit" 
+              fullWidth 
+              variant="contained" 
+              size="large" 
+              sx={{ mt: 3, mb: 2, py: 1.5 }}
+              disabled={isLoading}
+            >
+              {isLoading ? "Ingresando..." : "Ingresar al Sistema"}
             </Button>
             
             <Box textAlign="center">

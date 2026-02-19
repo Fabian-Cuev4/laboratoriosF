@@ -1,31 +1,52 @@
 from fastapi import APIRouter, HTTPException, Depends, Body
 from sqlalchemy.orm import Session
-from backend.database import get_db, redis_client, mongo_db
+from backend.database import get_db, mongo_db
 from backend.models.inventory import ItemModel
 from backend.schemas.inventory import ItemCreate, Laboratory
+from backend.services.mysql_redis_sync import (
+    check_mysql_available,
+    get_items_from_redis_fallback,
+    add_item_to_redis_cache,
+    add_item_to_redis_pending_and_cache,
+    add_pending_update,
+    add_pending_delete,
+    update_item_in_redis_cache,
+    delete_item_from_redis_cache,
+)
 from bson import ObjectId
-import json
 from typing import List, Dict
-import uuid # Para generar IDs unicos para los items de mongo
+import uuid  # Para generar IDs unicos para los items de mongo
 
 router = APIRouter(prefix="/laboratories", tags=["Gestión Híbrida"])
 
 # ==========================================
-# 🟠 PARTE 1: MYSQL + REDIS (Inventario Global - Demo Circuit Breaker)
+# 🟠 PARTE 1: MYSQL + REDIS (Inventario Global - Sincronizado)
 # ==========================================
+
 
 @router.get("/items")
 async def list_global_items(db: Session = Depends(get_db)):
     try:
         items = db.query(ItemModel).all()
-        return {"source": "MySQL", "data": items}
+        data = [
+            {
+                "id": i.id,
+                "code": i.code,
+                "type": i.type,
+                "status": i.status,
+                "area": i.area,
+                "acquisition_date": getattr(i, "acquisition_date", "") or "",
+            }
+            for i in items
+        ]
+        return {"source": "MySQL", "data": data}
     except Exception as e:
-        print(f"⚠️ [MySQL CAÍDO] Leyendo respaldo de Redis: {e}")
-        backup_raw = await redis_client.lrange("backup_items", 0, -1)
-        if not backup_raw:
-            return {"source": "REDIS_EMPTY", "data": [], "message": "No hay datos en respaldo"} 
-        backup_items = [json.loads(i) for i in backup_raw]
-        return {"source": "REDIS_CACHE", "message": "Modo de Emergencia Activado", "data": backup_items}
+        print(f"⚠️ [MySQL CAÍDO] Leyendo desde Redis: {e}")
+        data = await get_items_from_redis_fallback()
+        if not data:
+            return {"source": "REDIS_EMPTY", "data": [], "message": "No hay datos en respaldo"}
+        return {"source": "REDIS_CACHE", "message": "Modo de Emergencia - Redis como caché", "data": data}
+
 
 @router.post("/items")
 async def create_global_item(item: ItemCreate, db: Session = Depends(get_db)):
@@ -35,50 +56,103 @@ async def create_global_item(item: ItemCreate, db: Session = Depends(get_db)):
         db.add(new_db_item)
         db.commit()
         db.refresh(new_db_item)
-        return {"source": "MySQL", "status": "success", "data": item_dict}
+        # Dual-write: mantener Redis sincronizado
+        item_with_id = {
+            "id": new_db_item.id,
+            "code": new_db_item.code,
+            "type": new_db_item.type,
+            "status": new_db_item.status,
+            "area": new_db_item.area,
+            "acquisition_date": getattr(new_db_item, "acquisition_date", "") or "",
+        }
+        await add_item_to_redis_cache(item_with_id)
+        return {"source": "MySQL", "status": "success", "data": item_with_id}
     except Exception as e:
         print(f"⚠️ [MySQL FALLÓ] Guardando en Redis: {e}")
-        await redis_client.lpush("backup_items", json.dumps(item_dict))
-        return {"source": "REDIS_BACKUP", "status": "warning", "message": "BD Saturada. Guardado en memoria temporal.", "data": item_dict}
-    
-# EDITAR ITEM GLOBAL (MySQL)
+        await add_item_to_redis_pending_and_cache(item_dict)
+        return {
+            "source": "REDIS_BACKUP",
+            "status": "warning",
+            "message": "MySQL no disponible. Guardado en Redis. Se sincronizará cuando MySQL vuelva.",
+            "data": item_dict,
+        }
+
+
 @router.put("/items/{item_id}")
 async def update_global_item(item_id: int, item: ItemCreate, db: Session = Depends(get_db)):
-    # 1. Buscamos en MySQL
-    db_item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
-    
-    if not db_item:
-        raise HTTPException(status_code=404, detail="Item no encontrado en MySQL")
-
-    # 2. Actualizamos campos
-    db_item.name = item.name # (En el modelo se llama name, en el esquema code/name)
-    db_item.type = item.type
-    db_item.status = item.status
-    db_item.area = item.area
-    
+    item_data = item.model_dump()
     try:
+        db_item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+        if not db_item:
+            raise HTTPException(status_code=404, detail="Item no encontrado en MySQL")
+
+        db_item.code = item.code
+        db_item.type = item.type
+        db_item.status = item.status
+        db_item.area = item.area
+        if hasattr(db_item, "acquisition_date"):
+            db_item.acquisition_date = item.acquisition_date
+
         db.commit()
         db.refresh(db_item)
-        return {"source": "MySQL", "status": "updated", "data": item.model_dump()}
+        # Dual-write: actualizar Redis
+        updated = {
+            "id": db_item.id,
+            "code": db_item.code,
+            "type": db_item.type,
+            "status": db_item.status,
+            "area": db_item.area,
+            "acquisition_date": getattr(db_item, "acquisition_date", "") or "",
+        }
+        await update_item_in_redis_cache(item_id, updated)
+        return {"source": "MySQL", "status": "updated", "data": updated}
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"⚠️ Error actualizando MySQL: {e}")
-        raise HTTPException(status_code=500, detail="Error de conexión con MySQL")
+        print(f"⚠️ [MySQL FALLÓ] Aplicando update en Redis: {e}")
+        # Fallback: buscar en caché Redis y actualizar ahí
+        found = await update_item_in_redis_cache(
+            item_id,
+            {k: v for k, v in item_data.items() if k in ("code", "type", "status", "area", "acquisition_date")},
+        )
+        if not found:
+            raise HTTPException(status_code=404, detail="Item no encontrado")
+        await add_pending_update(item_id, item_data)
+        return {
+            "source": "REDIS_BACKUP",
+            "status": "warning",
+            "message": "MySQL no disponible. Actualización en Redis. Se sincronizará cuando MySQL vuelva.",
+            "data": {**item_data, "id": item_id},
+        }
 
-# ELIMINAR ITEM GLOBAL (MySQL)
+
 @router.delete("/items/{item_id}")
 async def delete_global_item(item_id: int, db: Session = Depends(get_db)):
-    # 1. Buscamos en MySQL
-    db_item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
-    
-    if not db_item:
-        raise HTTPException(status_code=404, detail="Item no encontrado")
-    
     try:
+        db_item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+        if not db_item:
+            raise HTTPException(status_code=404, detail="Item no encontrado")
+
         db.delete(db_item)
         db.commit()
+        # Dual-write: eliminar de Redis
+        await delete_item_from_redis_cache(item_id)
         return {"source": "MySQL", "status": "deleted", "id": item_id}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al eliminar de MySQL: {e}")
+        print(f"⚠️ [MySQL FALLÓ] Aplicando delete en Redis: {e}")
+        # Fallback: eliminar de caché Redis
+        found = await delete_item_from_redis_cache(item_id)
+        if not found:
+            raise HTTPException(status_code=404, detail="Item no encontrado")
+        await add_pending_delete(item_id)
+        return {
+            "source": "REDIS_BACKUP",
+            "status": "warning",
+            "message": "MySQL no disponible. Eliminado de Redis. Se sincronizará cuando MySQL vuelva.",
+            "id": item_id,
+        }
 
 # ==========================================
 # 🟢 PARTE 2: MONGODB (Gestión Detallada de Laboratorios)

@@ -2,8 +2,8 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Instalar dependencias del sistema
-RUN apt-get update && apt-get install -y build-essential
+# Instalar dependencias del sistema (incluyendo curl para healthcheck)
+RUN apt-get update && apt-get install -y build-essential curl
 
 # Instalar librerías de Python una por una para evitar conflictos
 # OJO: Instalamos bcrypt 3.2.0 explícitamente al final para sobrescribir cualquiera moderna

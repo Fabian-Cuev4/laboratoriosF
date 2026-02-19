@@ -10,6 +10,7 @@ import LinkIcon from '@mui/icons-material/Link';
 import EqualizerIcon from '@mui/icons-material/Equalizer'; 
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'; // <--- ÍCONO NUEVO
 import api from "../api/axios";
+import SystemHealthMonitor from "../components/SystemHealthMonitor";
 
 function DashboardPage() {
   const [servers, setServers] = useState([]);
@@ -95,6 +96,9 @@ function DashboardPage() {
           Simulación de Algoritmos de Balanceo NGINX en Tiempo Real
         </Typography>
       </Box>
+
+      {/* MONITOR DE SALUD DEL SISTEMA */}
+      <SystemHealthMonitor />
 
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 

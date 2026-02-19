@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   # --- BASES DE DATOS ---
@@ -37,6 +37,20 @@ services:
     networks:
       - lab_net
 
+  # --- ADMINER: Visualizador de MySQL ---
+  adminer:
+    image: adminer
+    container_name: lab_adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql_db
+    networks:
+      - lab_net
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql_db
+
   redis_db:
     image: redis:alpine
     container_name: lab_redis
@@ -47,6 +61,11 @@ services:
       - redis_data:/data
     networks:
       - lab_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # --- APLICACIONES ---
   
@@ -58,6 +77,8 @@ services:
     restart: always
     expose:
       - "8000"
+    ports:
+      - "8000-8002:8000" # Mapear puertos para pruebas locales
     environment:
       PORT: 8000
       # Usamos las variables para construir las URLs de conexión
@@ -69,8 +90,15 @@ services:
     depends_on:
       mysql_db:
         condition: service_healthy
+      redis_db:
+        condition: service_healthy
     networks:
       - lab_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     deploy:
       replicas: 3 # ¡AQUÍ ESTÁ LA MAGIA! CREA 3 CONTENEDORES
 

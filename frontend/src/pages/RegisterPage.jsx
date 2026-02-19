@@ -8,16 +8,38 @@ import { useState } from "react";
 function RegisterPage() {
   const { register, handleSubmit, formState: { errors } } = useForm();
   const [serverError, setServerError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const onSubmit = async (data) => {
+    setIsLoading(true);
+    setServerError(null);
+    
     try {
+      console.log("📤 Enviando registro a:", api.defaults.baseURL + "/auth/register");
       await api.post("/auth/register", data);
-      alert("¡Cuenta creada! Ahora inicia sesión.");
-      navigate("/login");
+      alert("✅ ¡Cuenta creada exitosamente! Ahora inicia sesión.");
+      navigate("/");
     } catch (error) {
-      console.error(error);
-      setServerError(error.response?.data?.detail || "Error al conectar con el servidor");
+      console.error("❌ Error de registro:", error);
+      
+      // Manejar diferentes tipos de errores
+      if (!error.response) {
+        // Error de red o conexión
+        if (error.code === 'ECONNABORTED') {
+          setServerError("⏱️ Timeout: El servidor tardó demasiado en responder");
+        } else if (error.message === 'Network Error') {
+          setServerError("🌐 Error de red: Verifica que el servidor esté disponible en " + api.defaults.baseURL);
+        } else {
+          setServerError(`🔌 Error de conexión: ${error.message}`);
+        }
+      } else if (error.response?.status === 400) {
+        setServerError("📧 Este email ya está registrado");
+      } else {
+        setServerError(error.response?.data?.detail || "Error al crear la cuenta");
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -34,31 +56,60 @@ function RegisterPage() {
             Crear Cuenta SISLAB
           </Typography>
 
-          {serverError && <Alert severity="error" sx={{ width: '100%', mb: 2 }}>{serverError}</Alert>}
+          {serverError && (
+            <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
+              {serverError}
+              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                API: {api.defaults.baseURL}
+              </Typography>
+            </Alert>
+          )}
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ width: '100%' }}>
             <TextField
-              margin="normal" fullWidth label="Nombre de Usuario" autoFocus
+              margin="normal" 
+              fullWidth 
+              label="Nombre de Usuario" 
+              autoFocus
+              disabled={isLoading}
               {...register("username", { required: "El usuario es obligatorio" })}
-              error={!!errors.username} helperText={errors.username?.message}
+              error={!!errors.username} 
+              helperText={errors.username?.message}
             />
             <TextField
-              margin="normal" fullWidth label="Correo Institucional" type="email"
+              margin="normal" 
+              fullWidth 
+              label="Correo Institucional" 
+              type="email"
+              disabled={isLoading}
               {...register("email", { required: "Email obligatorio" })}
-              error={!!errors.email} helperText={errors.email?.message}
+              error={!!errors.email} 
+              helperText={errors.email?.message}
             />
             <TextField
-              margin="normal" fullWidth label="Contraseña" type="password"
+              margin="normal" 
+              fullWidth 
+              label="Contraseña" 
+              type="password"
+              disabled={isLoading}
               {...register("password", { required: "Contraseña obligatoria" })}
-              error={!!errors.password} helperText={errors.password?.message}
+              error={!!errors.password} 
+              helperText={errors.password?.message}
             />
             
-            <Button type="submit" fullWidth variant="contained" size="large" sx={{ mt: 3, mb: 2, py: 1.5 }}>
-              Registrarse
+            <Button 
+              type="submit" 
+              fullWidth 
+              variant="contained" 
+              size="large" 
+              sx={{ mt: 3, mb: 2, py: 1.5 }}
+              disabled={isLoading}
+            >
+              {isLoading ? "Creando cuenta..." : "Registrarse"}
             </Button>
             
             <Box textAlign="center">
-              <Link to="/login" style={{ textDecoration: 'none', color: '#1976d2' }}>
+              <Link to="/" style={{ textDecoration: 'none', color: '#1976d2' }}>
                 ¿Ya tienes cuenta? Inicia sesión aquí
               </Link>
             </Box>
